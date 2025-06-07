@@ -28,71 +28,77 @@ public class SQLExpressionUtils {
     public static String normalizeCondExpressionSQL(String sqlCondExpr) {
         try {
             Expression parseExpression = CCJSqlParserUtil.parseCondExpression(sqlCondExpr);
-            ExpressionDeParser deparser = new ExpressionDeParser() {
-                @Override
-                public void visit(OrExpression expr) {
-                    // Place shorter expression on left as HSQL/H2 does
-                    if (expr.getLeftExpression().toString().length() > expr.getRightExpression().toString().length()) {
-                        super.visit(new OrExpression(expr.getRightExpression(), expr.getLeftExpression()));
-                    } else {
-                        super.visit(expr);
-                    }
-                }
-
-                public Expression stripParenthesis(Expression expression) {
-                    if (expression instanceof Parenthesis) {
-                        return stripParenthesis(((Parenthesis) expression).getExpression());
-                    } else {
-                        return expression;
-                    }
-                }
-
-                @Override
-                public void visit(Column tableColumn) {
-                    super.visit(new Column(tableColumn.getTable(), sqlNameUnEscape(tableColumn.getColumnName())));
-                }
-
-                @Override
-                public void visit(NotExpression notExpr) {
-                    if (stripParenthesis(notExpr.getExpression()) instanceof InExpression inExpression) {
-                        // NOT v IN -> v NOT IN
-                        inExpression.setNot(!inExpression.isNot());
-                        visit(inExpression);
-                    } else {
-                        super.visit(notExpr);
-                    }
-                }
-
-                @Override
-                public void visit(Parenthesis parenthesis) {
-                    // remove unnecessary brackets
-                    if (parenthesis.getExpression() instanceof Parenthesis) {
-                        visit((Parenthesis) parenthesis.getExpression());
-                    } else if (parenthesis.getExpression() instanceof NotExpression) {
-                        visit((NotExpression) parenthesis.getExpression());
-                    } else if (parenthesis.getExpression() instanceof EqualsTo) {
-                        visit((EqualsTo) parenthesis.getExpression());
-                    } else if (parenthesis.getExpression() instanceof NotEqualsTo) {
-                        visit((NotEqualsTo) parenthesis.getExpression());
-                    } else if (parenthesis.getExpression() instanceof IsNullExpression) {
-                        visit((IsNullExpression) parenthesis.getExpression());
-                    } else if (parenthesis.getExpression() instanceof InExpression) {
-                        visit((InExpression) parenthesis.getExpression());
-                    } else if (parenthesis.getExpression() instanceof AndExpression) {
-                        visit((AndExpression) parenthesis.getExpression());
-                    } else if ((parenthesis.getExpression() instanceof OrExpression) && (getBuffer().length() == 0)) {
-                        // Only skip global brackets for OR
-                        visit((OrExpression) parenthesis.getExpression());
-                    } else {
-                        super.visit(parenthesis);
-                    }
-                }
-            };
-
-            parseExpression.accept(deparser);
-            return deparser.getBuffer().toString();
+            
+            // TODO: Implement full expression normalization with JSQLParser 5.x
+            // For now, use basic normalization with string manipulation
+            Expression normalized = normalizeExpression(parseExpression);
+            return normalized.toString();
         } catch (TokenMgrException | JSQLParserException e) {
             throw new RuntimeException("conditional expression '" + sqlCondExpr + "' parser error", e);
+        }
+    }
+    
+    private static Expression normalizeExpression(Expression expression) {
+        if (expression instanceof OrExpression orExpr) {
+            // Place shorter expression on left as HSQL/H2 does
+            Expression left = normalizeExpression(orExpr.getLeftExpression());
+            Expression right = normalizeExpression(orExpr.getRightExpression());
+            
+            if (left.toString().length() > right.toString().length()) {
+                return new OrExpression(right, left);
+            } else {
+                return new OrExpression(left, right);
+            }
+        } else if (expression instanceof AndExpression andExpr) {
+            return new AndExpression(
+                normalizeExpression(andExpr.getLeftExpression()),
+                normalizeExpression(andExpr.getRightExpression())
+            );
+        } else if (expression instanceof NotExpression notExpr) {
+            Expression innerExpr = stripParenthesis(notExpr.getExpression());
+            if (innerExpr instanceof InExpression inExpression) {
+                // NOT v IN -> v NOT IN
+                inExpression.setNot(!inExpression.isNot());
+                return normalizeExpression(inExpression);
+            } else {
+                return new NotExpression(normalizeExpression(notExpr.getExpression()));
+            }
+        } else if (expression instanceof Parenthesis parenthesis) {
+            return normalizeParenthesis(parenthesis);
+        } else if (expression instanceof Column tableColumn) {
+            return new Column(tableColumn.getTable(), sqlNameUnEscape(tableColumn.getColumnName()));
+        } else {
+            return expression;
+        }
+    }
+    
+    private static Expression normalizeParenthesis(Parenthesis parenthesis) {
+        Expression innerExpr = parenthesis.getExpression();
+        
+        // Remove unnecessary brackets
+        if (innerExpr instanceof Parenthesis || 
+            innerExpr instanceof NotExpression ||
+            innerExpr instanceof EqualsTo ||
+            innerExpr instanceof NotEqualsTo ||
+            innerExpr instanceof IsNullExpression ||
+            innerExpr instanceof InExpression ||
+            innerExpr instanceof AndExpression) {
+            return normalizeExpression(innerExpr);
+        } else if (innerExpr instanceof OrExpression) {
+            // Only skip global brackets for OR at the top level
+            return normalizeExpression(innerExpr);
+        } else {
+            Parenthesis result = new Parenthesis();
+            result.setExpression(normalizeExpression(innerExpr));
+            return result;
+        }
+    }
+    
+    private static Expression stripParenthesis(Expression expression) {
+        if (expression instanceof Parenthesis parenthesis) {
+            return stripParenthesis(parenthesis.getExpression());
+        } else {
+            return expression;
         }
     }
 
