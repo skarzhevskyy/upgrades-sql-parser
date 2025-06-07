@@ -1,6 +1,5 @@
 plugins {
 	java
-	id("org.springframework.boot") version "3.5.0"
 	// Dependencies list and diff automation in command line and CI/CD
 	id("org.cyclonedx.bom") version "2.3.1"
 }
@@ -19,28 +18,19 @@ repositories {
 }
 
 dependencies {
-	implementation(platform(org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES))
-	implementation("org.springframework.boot:spring-boot-starter-web")
-	implementation("org.springframework.boot:spring-boot-starter-webflux")
-	implementation("org.springframework.boot:spring-boot-starter-validation")
-	implementation("org.springframework.boot:spring-boot-starter-actuator")
-	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.8")
 
-	implementation("org.apache.tomcat.embed:tomcat-embed-core:10.1.41") {
-		exclude(group = "org.apache.tomcat", module = "tomcat-annotations-api")
-	}
+	// TODO upgrade to 5.3
+	implementation("com.github.jsqlparser:jsqlparser:4.9")
 
+	implementation("ch.qos.logback:logback-classic:1.5.18")
 	implementation("com.google.guava:guava:33.4.8-jre")
-	implementation("org.apache.commons:commons-lang3")
+	implementation("org.apache.commons:commons-lang3:3.17.0")
 	// Runtime validation alternative...
 	implementation("org.assertj:assertj-core:3.27.3")
 
 	// Tests
-	testImplementation("org.springframework.boot:spring-boot-starter-test") {
-		exclude(group = "org.xmlunit", module = "xmlunit-core")
-		exclude(group = "com.jayway.jsonpath", module = "json-path")
-	}
-	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+	testImplementation("org.junit.jupiter:junit-jupiter:5.13.0")
+	testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.12.2")
 }
 
 tasks.withType<JavaCompile> {
