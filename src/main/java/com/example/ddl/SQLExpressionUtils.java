@@ -55,13 +55,39 @@ public class SQLExpressionUtils {
                 normalizeExpression(andExpr.getRightExpression())
             );
         } else if (expression instanceof NotExpression notExpr) {
-            Expression innerExpr = stripParenthesis(notExpr.getExpression());
-            if (innerExpr instanceof InExpression inExpression) {
-                // NOT v IN -> v NOT IN
-                inExpression.setNot(!inExpression.isNot());
-                return normalizeExpression(inExpression);
+            Expression innerExpr = notExpr.getExpression();
+            
+            // Strip parentheses to get to the actual expression
+            Expression strippedExpr = stripParenthesis(innerExpr);
+            
+            if (strippedExpr instanceof InExpression inExpression) {
+                // NOT (v IN ...) -> v NOT IN ...
+                InExpression result = new InExpression();
+                result.setLeftExpression(normalizeExpression(inExpression.getLeftExpression()));
+                result.setRightExpression(inExpression.getRightExpression());
+                result.setNot(true); // Set NOT flag to true
+                return result;
             } else {
-                return new NotExpression(normalizeExpression(notExpr.getExpression()));
+                // JSQLParser 5.x might structure IN expressions differently
+                // Let me check if this is actually an IN expression by looking at the string representation
+                String innerStr = innerExpr.toString();
+                if (innerStr.contains(" IN ")) {
+                    // This is hacky but let's try to transform it manually
+                    // Remove outer parentheses first
+                    String cleanStr = innerStr;
+                    if (cleanStr.startsWith("(") && cleanStr.endsWith(")")) {
+                        cleanStr = cleanStr.substring(1, cleanStr.length() - 1);
+                    }
+                    String transformed = cleanStr.replaceFirst("\\s+IN\\s+", " NOT IN ");
+                    try {
+                        Expression parsedTransformed = CCJSqlParserUtil.parseCondExpression(transformed);
+                        return normalizeExpression(parsedTransformed);
+                    } catch (Exception e) {
+                        // Manual transformation failed, fall back to original logic
+                    }
+                }
+                
+                return new NotExpression(normalizeExpression(innerExpr));
             }
         } else if (expression instanceof Parenthesis parenthesis) {
             return normalizeParenthesis(parenthesis);
@@ -75,19 +101,20 @@ public class SQLExpressionUtils {
     private static Expression normalizeParenthesis(Parenthesis parenthesis) {
         Expression innerExpr = parenthesis.getExpression();
         
-        // Remove unnecessary brackets
+        // Always remove unnecessary brackets for these expression types
         if (innerExpr instanceof Parenthesis || 
-            innerExpr instanceof NotExpression ||
             innerExpr instanceof EqualsTo ||
             innerExpr instanceof NotEqualsTo ||
             innerExpr instanceof IsNullExpression ||
             innerExpr instanceof InExpression ||
-            innerExpr instanceof AndExpression) {
-            return normalizeExpression(innerExpr);
-        } else if (innerExpr instanceof OrExpression) {
-            // Only skip global brackets for OR at the top level
+            innerExpr instanceof Column ||
+            innerExpr instanceof NotExpression ||
+            innerExpr instanceof AndExpression ||
+            innerExpr instanceof OrExpression) {
+            // Remove the parentheses and normalize the inner expression
             return normalizeExpression(innerExpr);
         } else {
+            // For other types, keep the parentheses but normalize the content
             Parenthesis result = new Parenthesis();
             result.setExpression(normalizeExpression(innerExpr));
             return result;
