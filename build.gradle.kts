@@ -19,8 +19,8 @@ repositories {
 
 dependencies {
 
-	// TODO upgrade to 5.3
-	implementation("com.github.jsqlparser:jsqlparser:4.9")
+	// Upgraded to 5.3
+	implementation("com.github.jsqlparser:jsqlparser:5.3")
 
 	implementation("ch.qos.logback:logback-classic:1.5.18")
 	implementation("com.google.guava:guava:33.4.8-jre")
