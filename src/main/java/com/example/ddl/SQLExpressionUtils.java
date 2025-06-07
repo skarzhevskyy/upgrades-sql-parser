@@ -7,17 +7,13 @@ package com.example.ddl;
 import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.NotExpression;
-import net.sf.jsqlparser.expression.Parenthesis;
 import net.sf.jsqlparser.expression.operators.conditional.AndExpression;
 import net.sf.jsqlparser.expression.operators.conditional.OrExpression;
-import net.sf.jsqlparser.expression.operators.relational.EqualsTo;
 import net.sf.jsqlparser.expression.operators.relational.InExpression;
-import net.sf.jsqlparser.expression.operators.relational.IsNullExpression;
-import net.sf.jsqlparser.expression.operators.relational.NotEqualsTo;
+import net.sf.jsqlparser.expression.operators.relational.ParenthesedExpressionList;
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.parser.TokenMgrException;
 import net.sf.jsqlparser.schema.Column;
-import net.sf.jsqlparser.util.deparser.ExpressionDeParser;
 import org.apache.commons.lang3.StringUtils;
 
 public class SQLExpressionUtils {
@@ -57,10 +53,8 @@ public class SQLExpressionUtils {
         } else if (expression instanceof NotExpression notExpr) {
             Expression innerExpr = notExpr.getExpression();
             
-            // Strip parentheses to get to the actual expression
-            Expression strippedExpr = stripParenthesis(innerExpr);
-            
-            if (strippedExpr instanceof InExpression inExpression) {
+            // Handle NOT (IN expression) -> NOT IN
+            if (innerExpr instanceof InExpression inExpression) {
                 // NOT (v IN ...) -> v NOT IN ...
                 InExpression result = new InExpression();
                 result.setLeftExpression(normalizeExpression(inExpression.getLeftExpression()));
@@ -68,12 +62,10 @@ public class SQLExpressionUtils {
                 result.setNot(true); // Set NOT flag to true
                 return result;
             } else {
-                // JSQLParser 5.x might structure IN expressions differently
-                // Let me check if this is actually an IN expression by looking at the string representation
+                // For other expressions, check if it contains an IN expression by string manipulation
                 String innerStr = innerExpr.toString();
                 if (innerStr.contains(" IN ")) {
-                    // This is hacky but let's try to transform it manually
-                    // Remove outer parentheses first
+                    // Remove outer parentheses if they exist
                     String cleanStr = innerStr;
                     if (cleanStr.startsWith("(") && cleanStr.endsWith(")")) {
                         cleanStr = cleanStr.substring(1, cleanStr.length() - 1);
@@ -89,8 +81,20 @@ public class SQLExpressionUtils {
                 
                 return new NotExpression(normalizeExpression(innerExpr));
             }
-        } else if (expression instanceof Parenthesis parenthesis) {
-            return normalizeParenthesis(parenthesis);
+        } else if (expression instanceof ParenthesedExpressionList parenthesedList) {
+            // Handle ParenthesedExpressionList by extracting the inner expression
+            // This replaces the deprecated Parenthesis class handling
+            @SuppressWarnings("deprecation")
+            var expressions = parenthesedList.getExpressions();
+            if (expressions.size() == 1) {
+                // Single expression wrapped in parentheses - normalize and return without parentheses
+                Expression innerExpr = (Expression) expressions.get(0);
+                return normalizeExpression(innerExpr);
+            } else {
+                // Multiple expressions - this shouldn't happen for conditional expressions
+                // but if it does, return as-is
+                return expression;
+            }
         } else if (expression instanceof Column tableColumn) {
             return new Column(tableColumn.getTable(), sqlNameUnEscape(tableColumn.getColumnName()));
         } else {
@@ -98,37 +102,6 @@ public class SQLExpressionUtils {
         }
     }
     
-    private static Expression normalizeParenthesis(Parenthesis parenthesis) {
-        Expression innerExpr = parenthesis.getExpression();
-        
-        // Always remove unnecessary brackets for these expression types
-        if (innerExpr instanceof Parenthesis || 
-            innerExpr instanceof EqualsTo ||
-            innerExpr instanceof NotEqualsTo ||
-            innerExpr instanceof IsNullExpression ||
-            innerExpr instanceof InExpression ||
-            innerExpr instanceof Column ||
-            innerExpr instanceof NotExpression ||
-            innerExpr instanceof AndExpression ||
-            innerExpr instanceof OrExpression) {
-            // Remove the parentheses and normalize the inner expression
-            return normalizeExpression(innerExpr);
-        } else {
-            // For other types, keep the parentheses but normalize the content
-            Parenthesis result = new Parenthesis();
-            result.setExpression(normalizeExpression(innerExpr));
-            return result;
-        }
-    }
-    
-    private static Expression stripParenthesis(Expression expression) {
-        if (expression instanceof Parenthesis parenthesis) {
-            return stripParenthesis(parenthesis.getExpression());
-        } else {
-            return expression;
-        }
-    }
-
     static String sqlNameUnEscape(String sqlName) {
         return StringUtils.strip(sqlName, "`\"");
     }
