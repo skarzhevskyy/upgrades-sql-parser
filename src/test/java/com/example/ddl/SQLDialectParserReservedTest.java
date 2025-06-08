@@ -21,7 +21,6 @@ import net.sf.jsqlparser.JSQLParserException;
  *
  * @see SQLDialectParserTest
  */
-@Disabled
 class SQLDialectParserReservedTest {
 
     private static final Logger log = LoggerFactory.getLogger(SQLDialectParserReservedTest.class);
